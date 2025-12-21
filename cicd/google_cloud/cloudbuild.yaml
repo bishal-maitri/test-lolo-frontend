@@ -19,10 +19,10 @@ steps:
         'NEXT_PUBLIC_API_GATEWAY_URL=${_NEXT_PUBLIC_API_GATEWAY_URL}',
         # Tag with the short commit SHA for traceability
         '-t',
-        'us-central1-docker.pkg.dev/lolo-app-staging-1/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
+        'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
         # Tag with the branch name and '-latest'
         '-t',
-        'us-central1-docker.pkg.dev/lolo-app-staging-1/lolo-frontend-dev/lolo-frontend:${BRANCH_NAME}-latest',
+        'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:${BRANCH_NAME}-latest',
         '.'
       ]
     id: 'build-image'
@@ -33,7 +33,7 @@ steps:
       [
         'push',
         '--all-tags',
-        'us-central1-docker.pkg.dev/lolo-app-staging-1/lolo-frontend-dev/lolo-frontend'
+        'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend'
       ]
     id: 'push-image'
     waitFor: ['build-image']
@@ -46,7 +46,7 @@ steps:
         'deploy',
         'lolo-legacy-frontend-dev',
         '--image',
-        'us-central1-docker.pkg.dev/lolo-app-staging-1/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
+        'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
         '--region',
         'us-central1',
         '--platform',
