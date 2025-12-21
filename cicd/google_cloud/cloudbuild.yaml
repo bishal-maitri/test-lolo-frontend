@@ -1,0 +1,87 @@
+steps:
+  # Build Docker image with two tags
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+        'build',
+        '-f',
+        'Dockerfile.prod',
+        '--build-arg',
+        'GOOGLE_CLIENT_ID=${_GOOGLE_CLIENT_ID}',
+        '--build-arg',
+        'GOOGLE_CLIENT_SECRET=${_GOOGLE_CLIENT_SECRET}',
+        '--build-arg',
+        'NEXT_PUBLIC_FIREBASE_API_KEY=${_NEXT_PUBLIC_FIREBASE_API_KEY}',
+        '--build-arg',
+        'NEXT_PUBLIC_AUTH_DOMAIN=${_NEXT_PUBLIC_AUTH_DOMAIN}',
+        '--build-arg',
+        'NEXT_PUBLIC_BASE_URL_IDENTITY=${_NEXT_PUBLIC_BASE_URL_IDENTITY}',
+        '--build-arg',
+        'NEXT_PUBLIC_API_GATEWAY_URL=${_NEXT_PUBLIC_API_GATEWAY_URL}',
+        # Tag with the short commit SHA for traceability
+        '-t',
+        'us-central1-docker.pkg.dev/lolo-app-staging-1/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
+        # Tag with the branch name and '-latest'
+        '-t',
+        'us-central1-docker.pkg.dev/lolo-app-staging-1/lolo-frontend-dev/lolo-frontend:${BRANCH_NAME}-latest',
+        '.'
+      ]
+    id: 'build-image'
+
+  # Push all Docker image tags to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'push',
+        '--all-tags',
+        'us-central1-docker.pkg.dev/lolo-app-staging-1/lolo-frontend-dev/lolo-frontend'
+      ]
+    id: 'push-image'
+    waitFor: ['build-image']
+
+  # Deploy to Cloud Run using the specific short commit SHA
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      [
+        'run',
+        'deploy',
+        'lolo-legacy-frontend-dev',
+        '--image',
+        'us-central1-docker.pkg.dev/lolo-app-staging-1/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
+        '--region',
+        'us-central1',
+        '--platform',
+        'managed'
+      ]
+    id: 'deploy'
+    waitFor: ['push-image']
+
+  # Run SonarQube analysis
+  # - name: "gcr.io/cloud-builders/gcloud"
+  #   entrypoint: "/bin/sh"
+  #   args:
+  #     [
+  #       "-c",
+  #       "apt-get update && apt-get install -y unzip && sonar_token=$(gcloud secrets versions access latest --secret=lolo-frontend-dev-analysis-token) && curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.6.2.2472-linux.zip && unzip sonar-scanner.zip -d /opt && /opt/sonar-scanner-4.6.2.2472-linux/bin/sonar-scanner -Dsonar.login=$sonar_token -X",
+  #     ]
+  #   id: "sonar-analysis"
+  # waitFor: ["run-tests"]
+
+  # Install jq, set permissions, and run the quality gate check script with environment variables
+  # Install jq and run the quality gate check script
+  # - name: "gcr.io/cloud-builders/gcloud"
+  #   entrypoint: "/bin/sh"
+  #   args:
+  #     [
+  #       "-c",
+  #       "apt-get update && apt-get install -y jq && sonar_token=$(gcloud secrets versions access latest --secret=sonar-user-token) && chmod +x ./cicd/google_cloud/check_quality_gate.sh && ./cicd/google_cloud/check_quality_gate.sh $sonar_token",
+  #     ]
+  #   id: "check-quality-gate"
+  #   waitFor: ["sonar-analysis"]
+
+# Substitutions for environment variables
+substitutions:
+  _REGION: us-central1
+
+# Cloud Build options
+options:
+  logging: CLOUD_LOGGING_ONLY

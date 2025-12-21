@@ -1,0 +1,75 @@
+apiVersion: skaffold/v4beta10
+kind: Config
+profiles:
+- name: dev
+  build:
+    artifacts:
+    - image: us-central1-docker.pkg.dev/lolo-app-dev-1/lolo-app/lolo-frontend-image
+      context: ..
+      docker:
+        dockerfile: Dockerfile.dev
+    - image: us-central1-docker.pkg.dev/lolo-app-dev-1/lolo-app/test-runner
+      context: ../integration-tests
+      docker:
+        dockerfile: Dockerfile.tests
+  deploy:
+    cloudrun:
+      region: us-central1
+      projectid: lolo-app-dev-1
+  manifests:
+    rawYaml:
+      - ./dev-pipeline/run-service-dev.yaml
+  verify:
+    - name: integration-tests-staging
+      container:
+        name: test-runner
+        image: us-central1-docker.pkg.dev/lolo-app-dev-1/lolo-app/test-runner
+        command: ["npx", "playwright", "test"]
+        env:
+          - name: BASE_URL
+            value: https://beta.uselolo.com/
+- name: staging
+  build:
+    artifacts:
+    - image: us-central1-docker.pkg.dev/lolo-app-dev-1/lolo-app/lolo-frontend-image
+      context: ..
+      docker:
+        dockerfile: Dockerfile.dev
+    - image: us-central1-docker.pkg.dev/lolo-app-dev-1/lolo-app/test-runner
+      context: ../integration-tests
+      docker:
+        dockerfile: Dockerfile.tests
+  deploy:
+    cloudrun:
+      region: us-central1
+      projectid: lolo-app-staging-1
+  manifests:
+    rawYaml:
+      - ./main-pipeline/run-service-staging.yaml
+  verify:
+    - name: integration-tests
+      container:
+        name: test-runner
+        image: us-central1-docker.pkg.dev/lolo-app-dev-1/lolo-app/test-runner
+        command: ["npx", "playwright", "test"]
+        env:
+          - name: BASE_URL
+            value: https://beta.uselolo.com/
+- name: prod
+  build:
+    artifacts:
+    - image: us-central1-docker.pkg.dev/lolo-app-dev-1/lolo-app/lolo-frontend-image
+      context: ..
+      docker:
+        dockerfile: Dockerfile.dev
+    - image: us-central1-docker.pkg.dev/lolo-app-dev-1/lolo-app/test-runner
+      context: ../integration-tests
+      docker:
+        dockerfile: Dockerfile.tests
+  deploy:
+    cloudrun:
+      region: us-central1
+      projectid: lolo-app-dev-1
+  manifests:
+    rawYaml:
+      - ./main-pipeline/run-service-prod.yaml
