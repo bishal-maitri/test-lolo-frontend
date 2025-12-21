@@ -16,7 +16,6 @@ WORKDIR /build-app
 
 # Copy only package files first (better caching)
 COPY package*.json ./
-COPY .husky .husky
 # Install deps (use npm ci for reproducibility)
 RUN npm ci
 
