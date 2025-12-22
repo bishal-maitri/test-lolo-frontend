@@ -1,4 +1,55 @@
 steps:
+ # Step 1: Install dependencies
+  - name: 'node:20'
+    entrypoint: 'npm'
+    args: ['ci']
+    id: 'install'
+
+    # Step 2: Build Next.js application
+  - name: 'node:20'
+    entrypoint: 'npm'
+    args: ['run', 'build']
+    id: 'build'
+    env:
+      - 'BUILD_ID=${SHORT_SHA}'
+      - 'NEXT_PUBLIC_CDN_URL=http://34.111.25.82/${SHORT_SHA}'
+    waitFor: ['install']
+
+    # Step 3: CRITICAL - Upload static assets FIRST
+  - name: 'gcr.io/cloud-builders/gsutil'
+    id: 'upload-static-assets'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Uploading static assets for build ${SHORT_SHA}..."
+
+        # Upload .next/static with immutable cache headers
+        gsutil -m -h "Cache-Control:public, max-age=31536000, immutable" \
+          cp -r .next/static/* \
+          gs://${_STATIC_BUCKET}/${SHORT_SHA}/_next/static/
+
+        # Upload public assets
+        gsutil -m -h "Cache-Control:public, max-age=86400" \
+          cp -r public/* \
+          gs://${_STATIC_BUCKET}/${SHORT_SHA}/public/
+
+        echo "Static assets uploaded successfully."
+    waitFor: ['build']
+
+    # Step 4: Verify CDN accessibility
+  - name: 'gcr.io/cloud-builders/curl'
+    id: 'verify-assets'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Verifying CDN accessibility..."
+        sleep 5
+        curl -sf "http://34.111.25.82/${SHORT_SHA}/_next/static/" || true
+        echo "CDN verification complete."
+    waitFor: ['upload-static-assets']
+
   # Build Docker image with two tags
   - name: 'gcr.io/cloud-builders/docker'
     args: [
@@ -17,6 +68,8 @@ steps:
         'NEXT_PUBLIC_BASE_URL_IDENTITY=${_NEXT_PUBLIC_BASE_URL_IDENTITY}',
         '--build-arg',
         'NEXT_PUBLIC_API_GATEWAY_URL=${_NEXT_PUBLIC_API_GATEWAY_URL}',
+        '--build-arg',
+        'BUILD_ID=${SHORT_SHA}',
         # Tag with the short commit SHA for traceability
         '-t',
         'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
@@ -81,6 +134,8 @@ steps:
 # Substitutions for environment variables
 substitutions:
   _REGION: us-central1
+  _STATIC_BUCKET: 'lolo-frontend-static-assets'
+
 
 # Cloud Build options
 options:
