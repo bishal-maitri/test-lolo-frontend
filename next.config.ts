@@ -4,64 +4,48 @@ import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 const nextConfig = (phase: string): NextConfig => {
   const isDev = phase === PHASE_DEVELOPMENT_SERVER;
 
-  // Build ID injected by Cloud Build or fallback to timestamp
-  const buildId =
-    process.env.BUILD_ID ||
-    process.env.SHORT_SHA ||
-    Date.now().toString();
+  // BUILD_ID injected during Cloud Build
+  const buildId = process.env.BUILD_ID || Date.now().toString();
 
-  // Static bucket environment variable
+  // Static bucket for uploading assets
   const staticBucket = process.env._STATIC_BUCKET || "lolo-frontend-static-assets";
+
+  console.log("Using BUILD_ID:", buildId);
 
   return {
     output: "standalone",
 
-    // Generate build ID for immutable asset paths
+    // Ensure Next.js uses the same build ID for all static assets
     generateBuildId: async () => buildId,
 
-    // Prefix all static assets with GCS HTTPS path including build ID
+    // Prefix static assets with GCS HTTPS URL + build ID
     assetPrefix: isDev ? undefined : `https://storage.googleapis.com/${staticBucket}/${buildId}`,
 
-    // Image optimization configuration
     images: {
       remotePatterns: [
         {
           protocol: "https",
           hostname: "storage.googleapis.com",
+          pathname: `/${staticBucket}/**`,
         },
-         {
-        protocol: 'https',
-        hostname: 'storage.googleapis.com',
-        pathname: `/${staticBucket}/**`
-      },
-      {
-        protocol: 'https',
-        hostname: 'storage.cloud.google.com/**'
-      },
-      {
-        protocol: 'https',
-        hostname: 'lh3.googleusercontent.com'
-      },
-      {
-        protocol: 'https',
-        hostname: 'googleapis.com'
-      },
-      {
-        protocol: 'https',
-        hostname: 'lh3.googleusercontent.com'
-      }
+        {
+          protocol: "https",
+          hostname: "lh3.googleusercontent.com",
+        },
+        {
+          protocol: "https",
+          hostname: "googleapis.com",
+        },
       ],
-      minimumCacheTTL: 60 * 60 * 24 * 30, // 30 days
+      minimumCacheTTL: 60 * 60 * 24 * 30,
       formats: ["image/avif", "image/webp"],
       deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048],
       imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     },
 
-    // Set headers for caching
     async headers() {
       return [
         {
-          // Cache Next.js static assets forever (immutable)
           source: "/_next/static/:path*",
           headers: [
             {
@@ -71,7 +55,6 @@ const nextConfig = (phase: string): NextConfig => {
           ],
         },
         {
-          // Cache optimized images for 30 days
           source: "/_next/image",
           headers: [
             {
@@ -86,6 +69,7 @@ const nextConfig = (phase: string): NextConfig => {
 };
 
 export default nextConfig;
+
 
 
 // import type { NextConfig } from "next";

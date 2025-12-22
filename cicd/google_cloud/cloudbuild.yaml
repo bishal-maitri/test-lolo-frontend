@@ -1,21 +1,21 @@
 steps:
- # Step 1: Install dependencies
+  # Step 1: Install dependencies
   - name: 'node:20'
     entrypoint: 'npm'
     args: ['ci']
     id: 'install'
 
-    # Step 2: Build Next.js application
+  # Step 2: Build Next.js with BUILD_ID
   - name: 'node:20'
     entrypoint: 'npm'
     args: ['run', 'build']
     id: 'build'
     env:
       - 'BUILD_ID=${SHORT_SHA}'
-      - 'NEXT_PUBLIC_CDN_URL=http://34.111.25.82/${SHORT_SHA}'
+      - 'NEXT_PUBLIC_CDN_URL=https://storage.googleapis.com/${_STATIC_BUCKET}/${SHORT_SHA}'
     waitFor: ['install']
 
-    # Step 3: CRITICAL - Upload static assets FIRST
+  # Step 3: Upload static assets to GCS under same BUILD_ID
   - name: 'gcr.io/cloud-builders/gsutil'
     id: 'upload-static-assets'
     entrypoint: 'bash'
@@ -23,21 +23,16 @@ steps:
       - '-c'
       - |
         echo "Uploading static assets for build ${SHORT_SHA}..."
-
-        # Upload .next/static with immutable cache headers
         gsutil -m -h "Cache-Control:public, max-age=31536000, immutable" \
           cp -r .next/static/* \
           gs://${_STATIC_BUCKET}/${SHORT_SHA}/_next/static/
-
-        # Upload public assets
         gsutil -m -h "Cache-Control:public, max-age=86400" \
           cp -r public/* \
           gs://${_STATIC_BUCKET}/${SHORT_SHA}/public/
-
         echo "Static assets uploaded successfully."
     waitFor: ['build']
 
-    # Step 4: Verify CDN accessibility
+  # Step 4: Verify assets
   - name: 'gcr.io/cloud-builders/curl'
     id: 'verify-assets'
     entrypoint: 'bash'
@@ -45,98 +40,43 @@ steps:
       - '-c'
       - |
         echo "Verifying CDN accessibility..."
-        sleep 5
-        curl -sf "http://34.111.25.82/${SHORT_SHA}/_next/static/" || true
+        curl -sf "https://storage.googleapis.com/${_STATIC_BUCKET}/${SHORT_SHA}/_next/static/" || true
         echo "CDN verification complete."
     waitFor: ['upload-static-assets']
 
-  # Build Docker image with two tags
+  # Step 5: Build Docker image
   - name: 'gcr.io/cloud-builders/docker'
-    args: [
-        'build',
-        '-f',
-        'Dockerfile.prod',
-        '--build-arg',
-        'GOOGLE_CLIENT_ID=${_GOOGLE_CLIENT_ID}',
-        '--build-arg',
-        'GOOGLE_CLIENT_SECRET=${_GOOGLE_CLIENT_SECRET}',
-        '--build-arg',
-        'NEXT_PUBLIC_FIREBASE_API_KEY=${_NEXT_PUBLIC_FIREBASE_API_KEY}',
-        '--build-arg',
-        'NEXT_PUBLIC_AUTH_DOMAIN=${_NEXT_PUBLIC_AUTH_DOMAIN}',
-        '--build-arg',
-        'NEXT_PUBLIC_BASE_URL_IDENTITY=${_NEXT_PUBLIC_BASE_URL_IDENTITY}',
-        '--build-arg',
-        'NEXT_PUBLIC_API_GATEWAY_URL=${_NEXT_PUBLIC_API_GATEWAY_URL}',
-        '--build-arg',
-        'BUILD_ID=${SHORT_SHA}',
-        # Tag with the short commit SHA for traceability
-        '-t',
-        'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
-        # Tag with the branch name and '-latest'
-        '-t',
-        'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:${BRANCH_NAME}-latest',
+    args:
+      [
+        'build', '-f', 'Dockerfile.prod',
+        '--build-arg', 'BUILD_ID=${SHORT_SHA}',
+        '--build-arg', 'NEXT_PUBLIC_CDN_URL=https://storage.googleapis.com/${_STATIC_BUCKET}/${SHORT_SHA}',
+        '-t', 'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
+        '-t', 'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:${BRANCH_NAME}-latest',
         '.'
       ]
     id: 'build-image'
+    waitFor: ['verify-assets']
 
-  # Push all Docker image tags to Artifact Registry
+  # Step 6: Push Docker image
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      [
-        'push',
-        '--all-tags',
-        'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend'
-      ]
+    args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend']
     id: 'push-image'
     waitFor: ['build-image']
 
-  # Deploy to Cloud Run using the specific short commit SHA
+  # Step 7: Deploy to Cloud Run with runtime env vars
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
       [
-        'run',
-        'deploy',
-        'lolo-legacy-frontend-dev',
-        '--image',
-        'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
-        '--region',
-        'us-central1',
-        '--platform',
-        'managed'
+        'run', 'deploy', 'lolo-legacy-frontend-dev',
+        '--image', 'us-central1-docker.pkg.dev/rich-torus-428117-m8/lolo-frontend-dev/lolo-frontend:$SHORT_SHA',
+        '--region', 'us-central1',
+        '--platform', 'managed',
+        '--set-env-vars', 'BUILD_ID=${SHORT_SHA},_STATIC_BUCKET=${_STATIC_BUCKET}'
       ]
     id: 'deploy'
     waitFor: ['push-image']
 
-  # Run SonarQube analysis
-  # - name: "gcr.io/cloud-builders/gcloud"
-  #   entrypoint: "/bin/sh"
-  #   args:
-  #     [
-  #       "-c",
-  #       "apt-get update && apt-get install -y unzip && sonar_token=$(gcloud secrets versions access latest --secret=lolo-frontend-dev-analysis-token) && curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.6.2.2472-linux.zip && unzip sonar-scanner.zip -d /opt && /opt/sonar-scanner-4.6.2.2472-linux/bin/sonar-scanner -Dsonar.login=$sonar_token -X",
-  #     ]
-  #   id: "sonar-analysis"
-  # waitFor: ["run-tests"]
-
-  # Install jq, set permissions, and run the quality gate check script with environment variables
-  # Install jq and run the quality gate check script
-  # - name: "gcr.io/cloud-builders/gcloud"
-  #   entrypoint: "/bin/sh"
-  #   args:
-  #     [
-  #       "-c",
-  #       "apt-get update && apt-get install -y jq && sonar_token=$(gcloud secrets versions access latest --secret=sonar-user-token) && chmod +x ./cicd/google_cloud/check_quality_gate.sh && ./cicd/google_cloud/check_quality_gate.sh $sonar_token",
-  #     ]
-  #   id: "check-quality-gate"
-  #   waitFor: ["sonar-analysis"]
-
-# Substitutions for environment variables
 substitutions:
   _REGION: us-central1
   _STATIC_BUCKET: 'lolo-frontend-static-assets'
-
-
-# Cloud Build options
-options:
-  logging: CLOUD_LOGGING_ONLY
