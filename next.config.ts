@@ -29,6 +29,27 @@ const nextConfig = (phase: string): NextConfig => {
           protocol: "https",
           hostname: "storage.googleapis.com",
         },
+         {
+        protocol: 'https',
+        hostname: 'storage.googleapis.com',
+        pathname: `/${staticBucket}/**`
+      },
+      {
+        protocol: 'https',
+        hostname: 'storage.cloud.google.com/**'
+      },
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com'
+      },
+      {
+        protocol: 'https',
+        hostname: 'googleapis.com'
+      },
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com'
+      }
       ],
       minimumCacheTTL: 60 * 60 * 24 * 30, // 30 days
       formats: ["image/avif", "image/webp"],
